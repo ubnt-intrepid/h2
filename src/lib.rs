@@ -87,6 +87,9 @@
 #![doc(html_root_url = "https://docs.rs/h2/0.1.12")]
 #![deny(missing_debug_implementations, missing_docs)]
 #![cfg_attr(test, deny(warnings))]
+// workaround for rustdoc issues in docs.rs
+// FIXME: remove it as soon as the toolchain used in docs.rs is updated.
+#![cfg_attr(h2_inject_extern_prelude, feature(extern_prelude))]
 
 #[macro_use]
 extern crate futures;

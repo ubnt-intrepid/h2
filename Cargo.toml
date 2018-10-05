@@ -16,6 +16,11 @@ keywords = ["http", "async", "non-blocking"]
 categories = ["asynchronous", "web-programming", "network-programming"]
 exclude = ["fixtures/**"]
 
+# workaround for rustdoc issues in docs.rs
+# FIXME: remove it as soon as the toolchain used in docs.rs is updated.
+[package.metadata.docs.rs]
+rustdoc-args = ["--cfg", "h2_inject_extern_prelude"]
+
 [badges.travis-ci]
 repository = "carllerche/h2"
 branch = "master"
