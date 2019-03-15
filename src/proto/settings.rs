@@ -17,6 +17,12 @@ impl Settings {
         }
     }
 
+    pub(crate) fn get(&self, id: u16) -> Option<u32> {
+        self.pending
+            .as_ref()
+            .and_then(|settings| settings.get(id))
+    }
+
     pub fn recv_settings(&mut self, frame: frame::Settings) {
         if frame.is_ack() {
             debug!("received remote settings ack");

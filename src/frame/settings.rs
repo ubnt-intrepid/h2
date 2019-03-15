@@ -1,16 +1,11 @@
 use bytes::{BufMut, BytesMut};
 use frame::{Error, Frame, FrameSize, Head, Kind, StreamId};
+use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, Default, Eq, PartialEq)]
 pub struct Settings {
     flags: SettingsFlags,
-    // Fields
-    header_table_size: Option<u32>,
-    enable_push: Option<u32>,
-    max_concurrent_streams: Option<u32>,
-    initial_window_size: Option<u32>,
-    max_frame_size: Option<u32>,
-    max_header_list_size: Option<u32>,
+    fields: BTreeMap<u16, u32>,
 }
 
 /// An enum that lists all valid settings that can be sent in a SETTINGS
@@ -25,6 +20,7 @@ pub enum Setting {
     InitialWindowSize(u32),
     MaxFrameSize(u32),
     MaxHeaderListSize(u32),
+    Opaque(u16, u32),
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Default)]
@@ -63,46 +59,58 @@ impl Settings {
     }
 
     pub fn initial_window_size(&self) -> Option<u32> {
-        self.initial_window_size
+        self.get(Setting::INITIAL_WINDOW_SIZE)
     }
 
     pub fn set_initial_window_size(&mut self, size: Option<u32>) {
-        self.initial_window_size = size;
+        self.set(Setting::INITIAL_WINDOW_SIZE, size);
     }
 
     pub fn max_concurrent_streams(&self) -> Option<u32> {
-        self.max_concurrent_streams
+        self.get(Setting::MAX_CONCURRENT_STREAMS)
     }
 
     pub fn set_max_concurrent_streams(&mut self, max: Option<u32>) {
-        self.max_concurrent_streams = max;
+        self.set(Setting::MAX_CONCURRENT_STREAMS, max);
     }
 
     pub fn max_frame_size(&self) -> Option<u32> {
-        self.max_frame_size
+        self.get(Setting::MAX_FRAME_SIZE)
     }
 
     pub fn set_max_frame_size(&mut self, size: Option<u32>) {
         if let Some(val) = size {
             assert!(DEFAULT_MAX_FRAME_SIZE <= val && val <= MAX_MAX_FRAME_SIZE);
         }
-        self.max_frame_size = size;
+        self.set(Setting::MAX_FRAME_SIZE, size);
     }
 
     pub fn max_header_list_size(&self) -> Option<u32> {
-        self.max_header_list_size
+        self.get(Setting::MAX_HEADER_LIST_SIZE)
     }
 
     pub fn set_max_header_list_size(&mut self, size: Option<u32>) {
-        self.max_header_list_size = size;
+        self.set(Setting::MAX_HEADER_LIST_SIZE, size);
     }
 
     pub fn is_push_enabled(&self) -> bool {
-        self.enable_push.unwrap_or(1) != 0
+        self.get(Setting::ENABLE_PUSH).unwrap_or(1) != 0
     }
 
     pub fn set_enable_push(&mut self, enable: bool) {
-        self.enable_push = Some(enable as u32);
+        self.set(Setting::ENABLE_PUSH, Some(enable as u32));
+    }
+
+    pub fn get(&self, id: u16) -> Option<u32> {
+        self.fields.get(&id).map(|val| *val)
+    }
+
+    pub fn set(&mut self, id: u16, val: Option<u32>) {
+        if let Some(val) = val {
+            self.fields.insert(id, val);
+        } else {
+            self.fields.remove(&id);
+        }
     }
 
     pub fn load(head: Head, payload: &[u8]) -> Result<Settings, Error> {
@@ -139,34 +147,37 @@ impl Settings {
         for raw in payload.chunks(6) {
             match Setting::load(raw) {
                 Some(HeaderTableSize(val)) => {
-                    settings.header_table_size = Some(val);
+                    settings.set(Setting::HEADER_TABLE_SIZE, Some(val));
                 },
                 Some(EnablePush(val)) => match val {
                     0 | 1 => {
-                        settings.enable_push = Some(val);
+                        settings.set(Setting::ENABLE_PUSH, Some(val));
                     },
                     _ => {
                         return Err(Error::InvalidSettingValue);
                     },
                 },
                 Some(MaxConcurrentStreams(val)) => {
-                    settings.max_concurrent_streams = Some(val);
+                    settings.set(Setting::MAX_CONCURRENT_STREAMS, Some(val));
                 },
                 Some(InitialWindowSize(val)) => if val as usize > MAX_INITIAL_WINDOW_SIZE {
                     return Err(Error::InvalidSettingValue);
                 } else {
-                    settings.initial_window_size = Some(val);
+                    settings.set(Setting::INITIAL_WINDOW_SIZE, Some(val));
                 },
                 Some(MaxFrameSize(val)) => {
                     if val < DEFAULT_MAX_FRAME_SIZE || val > MAX_MAX_FRAME_SIZE {
                         return Err(Error::InvalidSettingValue);
                     } else {
-                        settings.max_frame_size = Some(val);
+                        settings.set(Setting::MAX_FRAME_SIZE, Some(val));
                     }
                 },
                 Some(MaxHeaderListSize(val)) => {
-                    settings.max_header_list_size = Some(val);
+                    settings.set(Setting::MAX_HEADER_LIST_SIZE, Some(val));
                 },
+                Some(Opaque(id, val)) => {
+                    settings.set(id, Some(val));
+                }
                 None => {},
             }
         }
@@ -199,28 +210,8 @@ impl Settings {
     fn for_each<F: FnMut(Setting)>(&self, mut f: F) {
         use self::Setting::*;
 
-        if let Some(v) = self.header_table_size {
-            f(HeaderTableSize(v));
-        }
-
-        if let Some(v) = self.enable_push {
-            f(EnablePush(v));
-        }
-
-        if let Some(v) = self.max_concurrent_streams {
-            f(MaxConcurrentStreams(v));
-        }
-
-        if let Some(v) = self.initial_window_size {
-            f(InitialWindowSize(v));
-        }
-
-        if let Some(v) = self.max_frame_size {
-            f(MaxFrameSize(v));
-        }
-
-        if let Some(v) = self.max_header_list_size {
-            f(MaxHeaderListSize(v));
+        for (&id, &val) in &self.fields {
+            f(Opaque(id, val));
         }
     }
 }
@@ -234,6 +225,14 @@ impl<T> From<Settings> for Frame<T> {
 // ===== impl Setting =====
 
 impl Setting {
+    // Defined parameter identifiers (from section 6.5.2)
+    const HEADER_TABLE_SIZE: u16 = 0x1;
+    const ENABLE_PUSH: u16 = 0x2;
+    const MAX_CONCURRENT_STREAMS: u16 = 0x3;
+    const INITIAL_WINDOW_SIZE: u16 = 0x4;
+    const MAX_FRAME_SIZE: u16 = 0x5;
+    const MAX_HEADER_LIST_SIZE: u16 = 0x6;
+
     /// Creates a new `Setting` with the correct variant corresponding to the
     /// given setting id, based on the settings IDs defined in section
     /// 6.5.2.
@@ -241,13 +240,13 @@ impl Setting {
         use self::Setting::*;
 
         match id {
-            1 => Some(HeaderTableSize(val)),
-            2 => Some(EnablePush(val)),
-            3 => Some(MaxConcurrentStreams(val)),
-            4 => Some(InitialWindowSize(val)),
-            5 => Some(MaxFrameSize(val)),
-            6 => Some(MaxHeaderListSize(val)),
-            _ => None,
+            Setting::HEADER_TABLE_SIZE => Some(HeaderTableSize(val)),
+            Setting::ENABLE_PUSH => Some(EnablePush(val)),
+            Setting::MAX_CONCURRENT_STREAMS => Some(MaxConcurrentStreams(val)),
+            Setting::INITIAL_WINDOW_SIZE => Some(InitialWindowSize(val)),
+            Setting::MAX_FRAME_SIZE => Some(MaxFrameSize(val)),
+            Setting::MAX_HEADER_LIST_SIZE => Some(MaxHeaderListSize(val)),
+            id => Some(Opaque(id, val)),
         }
     }
 
@@ -272,12 +271,13 @@ impl Setting {
         use self::Setting::*;
 
         let (kind, val) = match *self {
-            HeaderTableSize(v) => (1, v),
-            EnablePush(v) => (2, v),
-            MaxConcurrentStreams(v) => (3, v),
-            InitialWindowSize(v) => (4, v),
-            MaxFrameSize(v) => (5, v),
-            MaxHeaderListSize(v) => (6, v),
+            HeaderTableSize(v) => (Setting::HEADER_TABLE_SIZE, v),
+            EnablePush(v) => (Setting::ENABLE_PUSH, v),
+            MaxConcurrentStreams(v) => (Setting::MAX_CONCURRENT_STREAMS, v),
+            InitialWindowSize(v) => (Setting::INITIAL_WINDOW_SIZE, v),
+            MaxFrameSize(v) => (Setting::MAX_FRAME_SIZE, v),
+            MaxHeaderListSize(v) => (Setting::MAX_HEADER_LIST_SIZE, v),
+            Opaque(i, v) => (i, v),
         };
 
         dst.put_u16_be(kind);

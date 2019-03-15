@@ -470,6 +470,11 @@ where
             .take_user_pings()
             .map(PingPong::new)
     }
+
+    /// Gets the value of a SETTINGS parameter with the specified code.
+    pub fn setting(&mut self, id: u16) -> Option<u32> {
+        self.connection.setting(id)
+    }
 }
 
 impl<T, B> futures::Stream for Connection<T, B>
@@ -852,6 +857,37 @@ impl Builder {
     /// ```
     pub fn reset_stream_duration(&mut self, dur: Duration) -> &mut Self {
         self.reset_stream_duration = dur;
+        self
+    }
+
+    /// Sets a custom SETTINGS parameter send to the client during handshake.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # extern crate h2;
+    /// # extern crate tokio_io;
+    /// # use tokio_io::*;
+    /// # use h2::server::*;
+    /// # use std::time::Duration;
+    /// #
+    /// # fn doc<T: AsyncRead + AsyncWrite>(my_io: T)
+    /// # -> Handshake<T>
+    /// # {
+    /// const SETTING_ENABLE_CONNECT_PROTOCOL: u16 = 0x8;
+    ///
+    /// // `server_fut` is a future representing the completion of the HTTP/2.0
+    /// // handshake.
+    /// let server_fut = Builder::new()
+    ///     .custom_setting(SETTINGS_ENABLE_CONNECT_PROTOCOL, Some(1))
+    ///     .handshake(my_io);
+    /// # server_fut
+    /// # }
+    /// #
+    /// # pub fn main() {}
+    /// ```
+    pub fn custom_setting(&mut self, id: u16, val: Option<u32>) -> &mut Self {
+        self.settings.set(id, val);
         self
     }
 

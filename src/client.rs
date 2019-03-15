@@ -1096,6 +1096,37 @@ impl Builder {
         self
     }
 
+    /// Sets a custom SETTINGS parameter send to the server during handshake.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # extern crate h2;
+    /// # extern crate tokio_io;
+    /// # use tokio_io::*;
+    /// # use h2::client::*;
+    /// # use std::time::Duration;
+    /// #
+    /// # fn doc<T: AsyncRead + AsyncWrite>(my_io: T)
+    /// # -> Handshake<T>
+    /// # {
+    /// const TLS_RENEG_PERMITTED: u16 = 0x10;
+    ///
+    /// // `client_fut` is a future representing the completion of the HTTP/2.0
+    /// // handshake.
+    /// let client_fut = Builder::new()
+    ///     .custom_setting(TLS_RENEG_PERMITTED, Some(1))
+    ///     .handshake(my_io);
+    /// # client_fut
+    /// # }
+    /// #
+    /// # pub fn main() {}
+    /// ```
+    pub fn custom_setting(&mut self, id: u16, val: Option<u32>) -> &mut Self {
+        self.settings.set(id, val);
+        self
+    }
+
     /// Creates a new configured HTTP/2.0 client backed by `io`.
     ///
     /// It is expected that `io` already be in an appropriate state to commence
@@ -1274,6 +1305,11 @@ where
         self.inner
             .take_user_pings()
             .map(PingPong::new)
+    }
+
+    /// Gets the value of a SETTINGS parameter with the specified code.
+    pub fn setting(&mut self, id: u16) -> Option<u32> {
+        self.inner.setting(id)
     }
 }
 

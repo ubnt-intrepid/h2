@@ -182,6 +182,10 @@ where
         self.ping_pong.take_user_pings()
     }
 
+    pub(crate) fn setting(&self, id: u16) -> Option<u32> {
+        self.settings.get(id)
+    }
+
     /// Advances the internal state of the connection.
     pub fn poll(&mut self) -> Poll<(), proto::Error> {
         use codec::RecvError::*;
